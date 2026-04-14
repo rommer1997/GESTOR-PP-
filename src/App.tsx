@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Component, ReactNode, ErrorInfo } from 'react';
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
   User, 
@@ -164,7 +164,7 @@ const DEVICE_ICONS: Record<keyof DeviceQuantities, React.ReactNode> = {
 // --- Helper Components ---
 
 const Switch = ({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) => (
-  <div className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg border border-gray-100 hover:border-gray-200 transition-colors">
+  <div className="flex items-center justify-between gap-4 py-2 px-3 bg-gray-50 rounded-lg border border-gray-100 hover:border-gray-200 transition-colors">
     {label && <span className="text-xs font-semibold text-gray-700">{label}</span>}
     <button
       onClick={() => onChange(!checked)}
@@ -219,9 +219,77 @@ const Select = ({ label, value, onChange, options, className }: any) => (
   </div>
 );
 
+// --- Error Boundary ---
+
+interface ErrorBoundaryProps {
+  children: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState;
+  props: ErrorBoundaryProps;
+
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.props = props;
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+          <div className="bg-white p-8 rounded-3xl shadow-2xl max-w-md w-full border border-red-100">
+            <div className="bg-red-100 w-16 h-16 rounded-2xl flex items-center justify-center mb-6 mx-auto">
+              <AlertCircle className="w-8 h-8 text-red-600" />
+            </div>
+            <h1 className="text-xl font-black text-center text-gray-900 mb-2">¡Ups! Algo salió mal</h1>
+            <p className="text-sm text-gray-500 text-center mb-6">
+              La aplicación ha encontrado un error inesperado. Por favor, intenta recargar la página.
+            </p>
+            <div className="bg-gray-50 p-4 rounded-xl mb-6 overflow-hidden">
+              <p className="text-[10px] font-mono text-red-500 break-words">
+                {this.state.error?.message || "Error desconocido"}
+              </p>
+            </div>
+            <button 
+              onClick={() => window.location.reload()}
+              className="w-full py-4 bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-red-700 transition-all shadow-lg shadow-red-600/20"
+            >
+              Recargar Aplicación
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // --- Main App ---
 
 export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
+  );
+}
+
+function AppContent() {
   const [activeTab, setActiveTab] = useState<'client' | 'legal'>('client');
   const [managementType, setManagementType] = useState<ManagementType>('1110');
   const [client, setClient] = useState<ClientData>({
@@ -275,10 +343,25 @@ export default function App() {
   const [customIntro, setCustomIntro] = useState<string | null>(null);
   const [isGeneratingAI, setIsGeneratingAI] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
-  const [activeModel, setActiveModel] = useState(() => localStorage.getItem('sd_active_model') || 'gemini-3-flash-preview');
+  const [activeModel, setActiveModel] = useState(() => {
+    try {
+      return localStorage.getItem('sd_active_model') || 'gemini-3.1-flash-lite-preview';
+    } catch (e) {
+      return 'gemini-3.1-flash-lite-preview';
+    }
+  });
   const [isCheckingApi, setIsCheckingApi] = useState(false);
 
-  const ai = useMemo(() => new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! }), []);
+  // LA API KEY SE CONFIGURA AQUÍ (Reemplaza el texto entre comillas con tu clave real)
+  const userProvidedApiKey = "";
+
+  const getApiKey = () => {
+    const key = userProvidedApiKey || 
+                (import.meta as any).env?.VITE_GEMINI_API_KEY || 
+                (typeof process !== 'undefined' ? process.env?.GEMINI_API_KEY : '') || 
+                '';
+    return key;
+  };
 
   // --- Effects ---
 
@@ -366,20 +449,31 @@ export default function App() {
   const showToast = (msg: string) => setToast(msg);
 
   const resetForm = () => {
-    if (window.confirm('¿Desea limpiar todos los datos?')) {
+    if (confirm('¿Desea limpiar todos los datos?')) {
       window.location.reload();
     }
   };
 
   const generateAIText = async () => {
+    const currentApiKey = getApiKey();
+    if (!currentApiKey) {
+      showToast('❌ No se ha detectado clave de API');
+      return;
+    }
     if (!aiSituation.trim()) {
-      alert('Por favor, describa la situación del cliente para que la IA pueda trabajar.');
+      showToast('⚠️ Describe la situación primero');
       return;
     }
 
     setIsGeneratingAI(true);
     try {
-      const systemInstruction = `Eres un experto en retención de clientes para Verisure. Tu objetivo es redactar un párrafo introductorio para una propuesta comercial y determinar qué dispositivos o servicios adicionales se deben añadir según la descripción del agente.
+      const ai = new GoogleGenAI({ apiKey: currentApiKey });
+      
+      const response = await ai.models.generateContent({
+        model: activeModel,
+        contents: [{ role: 'user', parts: [{ text: `Situación (SÓLO CONTEXTO, SIN PII): ${aiSituation}` }] }],
+        config: {
+          systemInstruction: `Eres un experto en retención de clientes para Verisure. Tu objetivo es redactar un párrafo introductorio para una propuesta comercial y determinar qué dispositivos o servicios adicionales se deben añadir según la descripción del agente.
       
       REGLAS DE SEGURIDAD CRÍTICAS:
       1. NO incluyas NOMBRES REALES, DNI, TELÉFONOS o DIRECCIONES en el texto generado.
@@ -402,13 +496,7 @@ export default function App() {
         * "Cambio de titularidad" o "ANP" (ya tiene su propio control).
         * "Traslado de alarma" o "Traslado sin costo" (ya tiene su propio control).
       
-      Debes responder en formato JSON estrictamente.`;
-
-      const response = await ai.models.generateContent({
-        model: activeModel,
-        contents: `Situación (SÓLO CONTEXTO, SIN PII): ${aiSituation}`,
-        config: {
-          systemInstruction,
+      Debes responder en formato JSON estrictamente.`,
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -440,7 +528,10 @@ export default function App() {
         },
       });
 
-      const result = JSON.parse(response.text || '{}');
+      const text = response.text;
+      if (!text) throw new Error('Respuesta vacía de la IA');
+      
+      const result = JSON.parse(text);
       if (result.introText) {
         setCustomIntro(result.introText.trim());
         
@@ -475,12 +566,11 @@ export default function App() {
       }
     } catch (error) {
       console.error('Error generating AI text:', error);
-      // Try to auto-fix if it's a model error
-      if (error instanceof Error && (error.message.includes('model') || error.message.includes('404'))) {
+      if (error instanceof Error && (error.message.includes('model') || error.message.includes('404') || error.message.includes('not found'))) {
         showToast('⚠️ Error de modelo. Intentando auto-reparación...');
         refreshApiModel();
       } else {
-        alert('Hubo un error al generar el texto con IA. Por favor, inténtelo de nuevo.');
+        showToast('❌ Error de conexión con la IA');
       }
     } finally {
       setIsGeneratingAI(false);
@@ -488,33 +578,45 @@ export default function App() {
   };
 
   const refreshApiModel = async () => {
+    const currentApiKey = getApiKey();
+    if (!currentApiKey) {
+      showToast('❌ No hay clave de API para detectar');
+      return;
+    }
     setIsCheckingApi(true);
     const modelsToTry = [
       'gemini-3-flash-preview',
       'gemini-3.1-flash-lite-preview',
-      'gemini-flash-latest'
+      'gemini-3.1-pro-preview'
     ];
 
     let found = false;
+    const ai = new GoogleGenAI({ apiKey: currentApiKey });
     for (const modelName of modelsToTry) {
       try {
-        await ai.models.generateContent({
+        const response = await ai.models.generateContent({
           model: modelName,
-          contents: "ping",
+          contents: [{ role: 'user', parts: [{ text: "ping" }] }],
           config: { maxOutputTokens: 1 }
         });
-        setActiveModel(modelName);
-        localStorage.setItem('sd_active_model', modelName);
-        showToast(`✅ API Restaurada: Usando ${modelName}`);
-        found = true;
-        break;
+        if (response.text) {
+          setActiveModel(modelName);
+          try {
+            localStorage.setItem('sd_active_model', modelName);
+          } catch (e) {
+            // Ignore localStorage errors
+          }
+          showToast(`✅ API Restaurada: Usando ${modelName}`);
+          found = true;
+          break;
+        }
       } catch (e) {
         console.warn(`Model ${modelName} failed, trying next...`);
       }
     }
 
     if (!found) {
-      alert('No se ha podido encontrar una versión de la API compatible. Contacte con soporte técnico.');
+      showToast('❌ No se encontró versión compatible de la API');
     }
     setIsCheckingApi(false);
   };
@@ -523,7 +625,7 @@ export default function App() {
 
   const generateEmailHTML = () => {
     if (!client.name) {
-      alert('Por favor, introduzca el nombre del cliente.');
+      showToast('⚠️ Introduce el nombre del cliente');
       return '';
     }
 
@@ -687,8 +789,8 @@ export default function App() {
     return `
       <div style="font-family:Arial,sans-serif;padding:10px;max-width:600px;margin:auto;background:#f4f7f9;">
         <table width="100%" style="background:#fff;border-radius:25px;overflow:hidden;box-shadow:0 15px 40px rgba(0,0,0,0.05);border:3px solid #E30613;">
-          <tr><td align="center" style="padding:25px;">
-            <img src="https://www.verisure.es/sites/es/themes/custom/sd_es/logo.png" width="160" referrerPolicy="no-referrer">
+          <tr><td align="center" style="padding:25px;background:#E30613;">
+            <img src="https://www.verisure.es/sites/vs-es/themes/custom/verisure_es/logo.png" width="160" style="filter:brightness(0) invert(1);" referrerPolicy="no-referrer">
           </td></tr>
           <tr><td>
             <img src="https://www.verisure.es/sites/es/files/flmngr/BODEGONES/bodegon_flechas_premio.png" width="600" style="width:100%;display:block;" referrerPolicy="no-referrer">
@@ -754,13 +856,17 @@ export default function App() {
       setShowPreview(false);
     } catch (err) {
       console.error('Error copying to clipboard:', err);
-      alert('Error al copiar. Por favor, use Chrome.');
+      showToast('❌ Error al copiar');
     }
   };
 
   // --- Render Helpers ---
 
   const currentLoc = locations[currentLocIndex];
+
+  if (!currentLoc) {
+    return null;
+  }
   const hasAsume = managementType === '1110' && locations.some(l => l.enableAsume);
 
   return (
@@ -779,9 +885,9 @@ export default function App() {
         <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-center gap-8">
           <div className="flex items-center gap-6">
             <img 
-              src="https://www.verisure.es/sites/es/themes/custom/sd_es/logo.png" 
+              src="https://www.verisure.es/sites/vs-es/themes/custom/verisure_es/logo.png" 
               alt="Verisure" 
-              className="h-12 w-auto drop-shadow-md"
+              className="h-12 w-auto drop-shadow-md brightness-0 invert"
               referrerPolicy="no-referrer"
             />
             <h1 className="text-2xl font-extrabold tracking-wider uppercase text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.2)]">
@@ -792,16 +898,6 @@ export default function App() {
         
         <div className="max-w-5xl mx-auto mt-6 flex justify-center">
           <div className="flex bg-black/20 p-1 rounded-xl backdrop-blur-sm border border-white/10">
-            <button 
-              onClick={() => setActiveTab('client')}
-              className={cn(
-                "px-6 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2",
-                activeTab === 'client' ? "bg-white text-red-600 shadow-md" : "text-white/70 hover:text-white"
-              )}
-            >
-              <Briefcase className="w-4 h-4" />
-              GESTOR
-            </button>
             {hasAsume && (
               <button 
                 onClick={() => setActiveTab('legal')}
@@ -865,6 +961,21 @@ export default function App() {
       </AnimatePresence>
 
       <main className="max-w-5xl mx-auto px-4 py-8">
+        {!getApiKey() && (
+          <motion.div 
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-amber-50 border border-amber-200 p-4 rounded-2xl mb-8 flex items-center gap-4"
+          >
+            <div className="bg-amber-100 p-2 rounded-lg">
+              <AlertCircle className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-amber-900">Modo Standalone Detectado</p>
+              <p className="text-xs text-amber-700">No se ha detectado una clave de API. El asistente de IA está desactivado. Añade tu clave en el código (variable userProvidedApiKey) o en el archivo .env.</p>
+            </div>
+          </motion.div>
+        )}
         <AnimatePresence mode="wait">
           {activeTab === 'client' ? (
             <motion.div 
@@ -1150,11 +1261,22 @@ export default function App() {
                       </div>
 
                       {managementType === '1110' && (
-                        <Switch 
-                          label="Asumimos la Permanencia"
-                          checked={currentLoc.enableAsume}
-                          onChange={(v) => updateLocation(currentLocIndex, { enableAsume: v })}
-                        />
+                        <div className="space-y-3">
+                          <Switch 
+                            label="Asumimos la Permanencia"
+                            checked={currentLoc.enableAsume}
+                            onChange={(v) => updateLocation(currentLocIndex, { enableAsume: v })}
+                          />
+                          {currentLoc.enableAsume && (
+                            <button 
+                              onClick={() => window.open('https://www.verisure.es/sites/es/files/carta-compromiso.pdf', '_blank')}
+                              className="w-full py-2 bg-red-50 text-red-600 rounded-lg text-[10px] font-black uppercase border border-red-100 hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
+                            >
+                              <FileText className="w-3 h-3" />
+                              Descargar Carta Compromiso
+                            </button>
+                          )}
+                        </div>
                       )}
 
                       {managementType === '1105' && (
@@ -1192,13 +1314,7 @@ export default function App() {
                               ))}
                             </div>
                             {currentLoc.gift && (
-                              <div className="mt-4 grid grid-cols-2 gap-2">
-                                <button 
-                                  onClick={() => window.open(`https://form.jotform.com/Verisure/formulario_recomendar_${currentLoc.gift === '100' ? 'bj' : '120_bj'}_gestor`, '_blank')}
-                                  className="py-2 bg-white border border-gray-200 rounded-lg text-[10px] font-black uppercase hover:bg-gray-50 transition-colors"
-                                >
-                                  📝 GESTOR
-                                </button>
+                              <div className="mt-4 grid grid-cols-1 gap-2">
                                 <button 
                                   onClick={() => window.open(`https://form.jotform.com/Verisure/retencion-recomendado-baja${currentLoc.gift === '120' ? '-plus' : ''}`, '_blank')}
                                   className="py-2 bg-white border border-gray-200 rounded-lg text-[10px] font-black uppercase hover:bg-gray-50 transition-colors"
@@ -1215,17 +1331,19 @@ export default function App() {
 
                   {/* Device Grid */}
                   <section className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                    <div className="flex items-center justify-between mb-6">
-                      <div className="flex items-center gap-2">
-                        <Smartphone className="w-5 h-5 text-red-600" />
-                        <h2 className="text-sm font-black uppercase tracking-widest text-gray-800">Dispositivos Incluidos</h2>
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-6">
+                        <div className="flex items-center gap-3">
+                          <Smartphone className="w-5 h-5 text-red-600" />
+                          <h2 className="text-sm font-black uppercase tracking-widest text-gray-800">Dispositivos Incluidos</h2>
+                        </div>
+                        <div className="flex-shrink-0">
+                          <Switch 
+                            label="Habilitar Ampliación"
+                            checked={currentLoc.enableAmpli}
+                            onChange={(v) => updateLocation(currentLocIndex, { enableAmpli: v })}
+                          />
+                        </div>
                       </div>
-                      <Switch 
-                        label="Habilitar Ampliación"
-                        checked={currentLoc.enableAmpli}
-                        onChange={(v) => updateLocation(currentLocIndex, { enableAmpli: v })}
-                      />
-                    </div>
 
                     <AnimatePresence>
                       {currentLoc.enableAmpli && (
@@ -1395,6 +1513,59 @@ export default function App() {
                 <div className="flex items-center gap-2 mb-2">
                   <FileText className="w-5 h-5 text-red-600" />
                   <h2 className="text-sm font-black uppercase tracking-widest text-gray-800">Documentación y Notas</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                    <button 
+                      onClick={() => window.open('https://www.verisure.es/sites/es/files/guia-usuario-verisure.pdf', '_blank')}
+                      className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-transparent hover:border-red-200 hover:bg-red-50 transition-all group text-left"
+                    >
+                      <div className="bg-white p-2 rounded-lg shadow-sm group-hover:bg-red-600 group-hover:text-white transition-colors">
+                        <FileText className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase text-gray-400">Descargar</p>
+                        <p className="text-xs font-bold text-gray-700">Guía de Usuario</p>
+                      </div>
+                    </button>
+
+                    <button 
+                      onClick={() => window.open('https://www.verisure.es/sites/es/files/folleto-verisure.pdf', '_blank')}
+                      className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-transparent hover:border-red-200 hover:bg-red-50 transition-all group text-left"
+                    >
+                      <div className="bg-white p-2 rounded-lg shadow-sm group-hover:bg-red-600 group-hover:text-white transition-colors">
+                        <Briefcase className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase text-gray-400">Descargar</p>
+                        <p className="text-xs font-bold text-gray-700">Folleto Comercial</p>
+                      </div>
+                    </button>
+
+                    <button 
+                      onClick={() => window.open('https://www.verisure.es/condiciones-generales', '_blank')}
+                      className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-transparent hover:border-red-200 hover:bg-red-50 transition-all group text-left"
+                    >
+                      <div className="bg-white p-2 rounded-lg shadow-sm group-hover:bg-red-600 group-hover:text-white transition-colors">
+                        <Shield className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase text-gray-400">Ver</p>
+                        <p className="text-xs font-bold text-gray-700">Condiciones Legales</p>
+                      </div>
+                    </button>
+
+                    <button 
+                      onClick={() => window.open('https://www.verisure.es/app-my-verisure', '_blank')}
+                      className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-transparent hover:border-red-200 hover:bg-red-50 transition-all group text-left"
+                    >
+                      <div className="bg-white p-2 rounded-lg shadow-sm group-hover:bg-red-600 group-hover:text-white transition-colors">
+                        <Smartphone className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase text-gray-400">Instalar</p>
+                        <p className="text-xs font-bold text-gray-700">App My Verisure</p>
+                      </div>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

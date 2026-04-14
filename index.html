@@ -4,9 +4,36 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gestor de Propuestas AI | Verisure</title>
-    <link rel="icon" type="image/png" href="https://www.verisure.es/sites/es/themes/custom/sd_es/logo.png" />
+    <link rel="icon" type="image/x-icon" href="https://www.verisure.es/sites/vs-es/files/favicon.ico" />
+    <style>
+      #error-log {
+        position: fixed;
+        top: 0; left: 0; right: 0;
+        background: red; color: white;
+        z-index: 9999; padding: 10px;
+        font-family: monospace;
+        display: none;
+      }
+    </style>
+    <script>
+      window.onerror = function(msg, url, line, col, error) {
+        var log = document.getElementById('error-log');
+        if (log) {
+          log.style.display = 'block';
+          log.innerHTML += msg + '<br/>';
+        }
+      };
+      window.onunhandledrejection = function(event) {
+        var log = document.getElementById('error-log');
+        if (log) {
+          log.style.display = 'block';
+          log.innerHTML += 'Unhandled Promise Rejection: ' + event.reason + '<br/>';
+        }
+      };
+    </script>
   </head>
   <body>
+    <div id="error-log"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
