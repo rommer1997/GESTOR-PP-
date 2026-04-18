@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
-    "build": "vite build",
+    "build": "vite build && mkdir -p PONLOACA public && cp dist/index.html PONLOACA/VERISURE_APP_PORTABLE.html && cp dist/index.html public/VERISURE_APP_PORTABLE.html",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"

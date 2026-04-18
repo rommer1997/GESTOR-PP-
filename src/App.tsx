@@ -27,7 +27,8 @@ import {
   Briefcase,
   Sparkles,
   Loader2,
-  Info
+  Info,
+  Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
@@ -53,6 +54,8 @@ interface DeviceQuantities {
   smart?: number;
   humo?: number;
   peri?: number;
+  mando?: number;
+  acceso?: number;
 }
 
 interface LocationData {
@@ -149,7 +152,9 @@ const DEVICE_NAMES: Record<keyof DeviceQuantities, string> = {
   arlo: 'Cámara Arlo Pro',
   smart: 'Smartlock',
   humo: 'Detector Humo/Incendio',
-  peri: 'Detector Perimetral'
+  peri: 'Detector Perimetral',
+  mando: 'Mando a distancia',
+  acceso: 'Control de Acceso'
 };
 
 const DEVICE_ICONS: Record<keyof DeviceQuantities, React.ReactNode> = {
@@ -158,7 +163,9 @@ const DEVICE_ICONS: Record<keyof DeviceQuantities, React.ReactNode> = {
   arlo: <Camera className="w-4 h-4" />,
   smart: <Lock className="w-4 h-4" />,
   humo: <Wind className="w-4 h-4" />,
-  peri: <Layers className="w-4 h-4" />
+  peri: <Layers className="w-4 h-4" />,
+  mando: <Smartphone className="w-4 h-4" />,
+  acceso: <Lock className="w-4 h-4" />
 };
 
 // --- Helper Components ---
@@ -290,7 +297,7 @@ export default function App() {
 }
 
 function AppContent() {
-  const [activeTab, setActiveTab] = useState<'client' | 'legal'>('client');
+  const [showSalModal, setShowSalModal] = useState(false);
   const [managementType, setManagementType] = useState<ManagementType>('1110');
   const [client, setClient] = useState<ClientData>({
     treatment: 'Sr.',
@@ -351,9 +358,10 @@ function AppContent() {
     }
   });
   const [isCheckingApi, setIsCheckingApi] = useState(false);
+  const [teleCierreMode, setTeleCierreMode] = useState(false);
 
   // LA API KEY SE CONFIGURA AQUÍ (Reemplaza el texto entre comillas con tu clave real)
-  const userProvidedApiKey = "";
+  const userProvidedApiKey = "AIzaSyBF1OmWP9JthKLpbXsc37pM-MZj_-LVqKI";
 
   const getApiKey = () => {
     const key = userProvidedApiKey || 
@@ -364,6 +372,17 @@ function AppContent() {
   };
 
   // --- Effects ---
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowSalModal(false);
+        setShowPreview(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   useEffect(() => {
     if (toast) {
@@ -473,7 +492,7 @@ function AppContent() {
         model: activeModel,
         contents: [{ role: 'user', parts: [{ text: `Situación (SÓLO CONTEXTO, SIN PII): ${aiSituation}` }] }],
         config: {
-          systemInstruction: `Eres un experto en retención de clientes para Verisure. Tu objetivo es redactar un párrafo introductorio para una propuesta comercial y determinar qué dispositivos o servicios adicionales se deben añadir según la descripción del agente.
+          systemInstruction: `Eres un experto en retención de clientes para Verisure. Tu objetivo es redactar un párrafo introductorio para una propuesta comercial según la descripción del agente.
       
       REGLAS DE SEGURIDAD CRÍTICAS:
       1. NO incluyas NOMBRES REALES, DNI, TELÉFONOS o DIRECCIONES en el texto generado.
@@ -487,15 +506,16 @@ function AppContent() {
       - Sin saludos ni despedidas.
       - IMPORTANTE: El texto DEBE terminar SIEMPRE con una frase de transición como "por eso ofrecemos lo siguiente:", "por eso adaptamos la siguiente propuesta para usted:" o similar.
       
-      REGLAS DE DISPOSITIVOS:
-      - Analiza si el agente menciona ampliar dispositivos o servicios.
-      - Identifica dispositivos estándar: mag (magnéticos), foto (fotodetectores), arlo (cámaras), smart (smartlock), humo (humo), peri (perimetral).
-      - Identifica servicios o dispositivos EXTRA que no estén en la lista.
-      - EXCLUSIONES CRÍTICAS (NO añadir como extra si se mencionan):
-        * "Actualización del sistema de alarmas" (ya tiene su propio control).
-        * "Cambio de titularidad" o "ANP" (ya tiene su propio control).
-        * "Traslado de alarma" o "Traslado sin costo" (ya tiene su propio control).
-      
+      DETECCIÓN DE COMPETENCIA:
+      Si el agente menciona que el cliente quiere cambiar de compañía, tiene ofertas de otros o menciona la competencia, debes actuar de forma COMPETITIVA pero EMPÁTICA:
+      - Menciona sutilmente los riesgos de las nuevas permanencias con otras compañías.
+      - Advierte sobre las cuotas inestables (ofertas de captación que luego suben drásticamente).
+      - Resalta la tecnología EXCLUSIVA de Verisure que otros no tienen:
+        * Tecnología PreSense™ (detección antes de la intrusión).
+        * Red Anti-Inhibición dedicada (ATN) propia y ultra-potente gestada por nosotros.
+        * Respuesta en menos de 20 segundos con aviso a policía.
+      - Tu enfoque debe ser hacer sentir al cliente que en Verisure está más protegido y con condiciones más estables y transparentes.
+
       Debes responder en formato JSON estrictamente.`,
           responseMimeType: "application/json",
           responseSchema: {
@@ -534,34 +554,6 @@ function AppContent() {
       const result = JSON.parse(text);
       if (result.introText) {
         setCustomIntro(result.introText.trim());
-        
-        // Update current location with devices
-        const loc = locations[currentLocIndex];
-        const updatedDevices = { ...loc.devices };
-        let hasChanges = false;
-
-        if (result.standardDevices) {
-          Object.entries(result.standardDevices).forEach(([id, qty]) => {
-            if (typeof qty === 'number' && qty > 0) {
-              updatedDevices[id as keyof DeviceQuantities] = qty;
-              hasChanges = true;
-            }
-          });
-        }
-
-        const newExtraDevices = [...(loc.extraDevices || []), ...(result.extraDevices || [])];
-        // Remove duplicates
-        const uniqueExtra = Array.from(new Set(newExtraDevices));
-        if (uniqueExtra.length !== (loc.extraDevices || []).length) hasChanges = true;
-
-        if (hasChanges || result.introText) {
-          updateLocation(currentLocIndex, { 
-            devices: updatedDevices,
-            extraDevices: uniqueExtra,
-            enableAmpli: uniqueExtra.length > 0 || Object.values(updatedDevices).some(q => (q as number) > 0)
-          });
-        }
-
         showToast('✨ Propuesta adaptada con éxito por la IA');
       }
     } catch (error) {
@@ -623,9 +615,14 @@ function AppContent() {
 
   // --- HTML Generation ---
 
-  const generateEmailHTML = () => {
+  const generateEmailHTML = (silent = false) => {
     if (!client.name) {
-      showToast('⚠️ Introduce el nombre del cliente');
+      if (!silent) showToast('⚠️ Introduce el nombre del cliente');
+      return '';
+    }
+
+    if (locations.some(loc => !loc.address)) {
+      if (!silent) showToast('⚠️ Introduce la dirección en todas las sedes configuradas');
       return '';
     }
 
@@ -789,11 +786,11 @@ function AppContent() {
     return `
       <div style="font-family:Arial,sans-serif;padding:10px;max-width:600px;margin:auto;background:#f4f7f9;">
         <table width="100%" style="background:#fff;border-radius:25px;overflow:hidden;box-shadow:0 15px 40px rgba(0,0,0,0.05);border:3px solid #E30613;">
-          <tr><td align="center" style="padding:25px;background:#E30613;">
-            <img src="https://www.verisure.es/sites/vs-es/themes/custom/verisure_es/logo.png" width="160" style="filter:brightness(0) invert(1);" referrerPolicy="no-referrer">
+          <tr><td align="center" style="padding:25px;background:#ffffff;border-bottom:1px solid #eee;">
+            <img src="https://www.verisure.es/sites/vs-es/files/verisure_logo_red_rgb.png" width="160" style="display:block;" alt="Verisure" referrerPolicy="no-referrer">
           </td></tr>
           <tr><td>
-            <img src="https://www.verisure.es/sites/es/files/flmngr/BODEGONES/bodegon_flechas_premio.png" width="600" style="width:100%;display:block;" referrerPolicy="no-referrer">
+            <img src="https://www.verisure.es/sites/vs-es/files/2021-07/dispositivos-alarma-verisure.png" width="600" style="width:100%;max-width:600px;display:block;margin:auto;background:#fff;" alt="Alarma Verisure" referrerPolicy="no-referrer">
           </td></tr>
           <tr><td style="padding:30px;">
             <h2 style="color:#E30613;font-size:20px;margin-bottom:15px;">${salutation} ${client.treatment} ${client.name}</h2>
@@ -872,45 +869,26 @@ function AppContent() {
   return (
     <div className="min-h-screen bg-[#f4f7f9] text-gray-900 font-sans pb-20">
       {/* Header */}
-      <header className="bg-gradient-to-br from-[#E30613] to-[#a00410] text-white py-6 px-4 shadow-lg relative overflow-hidden">
+      <header className="bg-white text-[#E30613] py-6 px-4 shadow-md border-b-4 border-[#E30613] relative overflow-hidden">
         {/* Config Gear */}
         <button 
           onClick={() => setShowConfig(!showConfig)}
-          className="absolute top-4 right-4 p-2 bg-white/10 hover:bg-white/20 rounded-full transition-all z-50"
-          title="Configuración de API"
+          className="absolute top-4 right-4 p-2 bg-red-50 hover:bg-red-100 text-[#E30613] rounded-full transition-all z-50 border border-red-200 shadow-sm"
+          title="Configuración"
         >
           <Settings className={cn("w-5 h-5", showConfig && "animate-spin")} />
         </button>
 
-        <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-center gap-8">
-          <div className="flex items-center gap-6">
-            <img 
-              src="https://www.verisure.es/sites/vs-es/themes/custom/verisure_es/logo.png" 
-              alt="Verisure" 
-              className="h-12 w-auto drop-shadow-md brightness-0 invert"
-              referrerPolicy="no-referrer"
-            />
-            <h1 className="text-2xl font-extrabold tracking-wider uppercase text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.2)]">
-              Gestor de Propuestas
-            </h1>
-          </div>
-        </div>
-        
-        <div className="max-w-5xl mx-auto mt-6 flex justify-center">
-          <div className="flex bg-black/20 p-1 rounded-xl backdrop-blur-sm border border-white/10">
-            {hasAsume && (
-              <button 
-                onClick={() => setActiveTab('legal')}
-                className={cn(
-                  "px-6 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-2",
-                  activeTab === 'legal' ? "bg-white text-red-600 shadow-md" : "text-white/70 hover:text-white"
-                )}
-              >
-                <FileText className="w-4 h-4" />
-                LEGAL
-              </button>
-            )}
-          </div>
+        <div className="max-w-5xl mx-auto flex flex-col items-center justify-center text-center">
+          <img 
+            src="https://www.verisure.es/sites/vs-es/files/verisure_logo_red_rgb.png" 
+            alt="Verisure" 
+            className="h-14 w-auto mb-2"
+            referrerPolicy="no-referrer"
+          />
+          <h1 className="text-2xl font-black tracking-[0.2em] uppercase text-[#E30613]">
+            Gestor de Propuestas
+          </h1>
         </div>
       </header>
 
@@ -928,22 +906,24 @@ function AppContent() {
                   <Shield className="w-6 h-6 text-red-600" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-black uppercase text-gray-800">Estado de la Conexión IA</h3>
-                  <p className="text-xs text-gray-500">Si el asistente no responde, verifique su conexión o reinicie la aplicación.</p>
+                  <h3 className="text-sm font-black uppercase text-gray-800">Panel de Configuración</h3>
+                  <p className="text-xs text-gray-500">Ajuste las preferencias del gestor de propuestas.</p>
                 </div>
               </div>
-              <div className="flex gap-3">
+              <div className="flex flex-wrap gap-3 justify-center">
                 <button 
-                  onClick={refreshApiModel}
-                  disabled={isCheckingApi}
-                  className="px-6 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 transition-all flex items-center gap-2 disabled:opacity-50"
+                  onClick={() => setTeleCierreMode(!teleCierreMode)}
+                  className={cn(
+                    "px-6 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
+                    teleCierreMode ? "bg-red-600 text-white shadow-lg" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                  )}
                 >
-                  {isCheckingApi ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  AUTO-DETECTAR API
+                  {teleCierreMode ? <CheckCircle2 className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
+                  MODO TELECIERRE: {teleCierreMode ? 'ACTIVADO' : 'DESACTIVADO'}
                 </button>
                 <button 
                   onClick={() => window.location.reload()}
-                  className="px-6 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-all flex items-center gap-2"
+                  className="px-6 py-2 bg-gray-800 text-white rounded-xl text-xs font-bold hover:bg-black transition-all flex items-center gap-2"
                 >
                   <RotateCcw className="w-4 h-4" />
                   REINICIAR APP
@@ -977,52 +957,52 @@ function AppContent() {
           </motion.div>
         )}
         <AnimatePresence mode="wait">
-          {activeTab === 'client' ? (
             <motion.div 
-              key="client-tab"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
               className="space-y-8"
             >
               {/* Management Type Selector */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <button 
-                  onClick={() => setManagementType('1110')}
-                  className={cn(
-                    "p-6 rounded-2xl border-2 text-left transition-all group",
-                    managementType === '1110' 
-                      ? "border-red-500 bg-red-50 ring-4 ring-red-500/10" 
-                      : "border-gray-200 bg-white hover:border-gray-300"
-                  )}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className={cn("text-lg font-black", managementType === '1110' ? "text-red-600" : "text-gray-700")}>CLIENTE 1110</h3>
-                    <div className={cn("p-2 rounded-full", managementType === '1110' ? "bg-red-600 text-white" : "bg-gray-100 text-gray-400")}>
-                      <RotateCcw className="w-5 h-5" />
+              {!teleCierreMode && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <button 
+                    onClick={() => setManagementType('1110')}
+                    className={cn(
+                      "p-6 rounded-2xl border-2 text-left transition-all group",
+                      managementType === '1110' 
+                        ? "border-red-500 bg-red-50 ring-4 ring-red-500/10" 
+                        : "border-gray-200 bg-white hover:border-gray-300"
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className={cn("text-lg font-black", managementType === '1110' ? "text-red-600" : "text-gray-700")}>CLIENTE 1110</h3>
+                      <div className={cn("p-2 rounded-full", managementType === '1110' ? "bg-red-600 text-white" : "bg-gray-100 text-gray-400")}>
+                        <RotateCcw className="w-5 h-5" />
+                      </div>
                     </div>
-                  </div>
-                  <p className="text-sm text-gray-500 font-medium">Rescate por cambio de compañía de seguridad.</p>
-                </button>
+                    <p className="text-sm text-gray-500 font-medium">Rescate por cambio de compañía de seguridad.</p>
+                  </button>
 
-                <button 
-                  onClick={() => setManagementType('1105')}
-                  className={cn(
-                    "p-6 rounded-2xl border-2 text-left transition-all group",
-                    managementType === '1105' 
-                      ? "border-red-500 bg-red-50 ring-4 ring-red-500/10" 
-                      : "border-gray-200 bg-white hover:border-gray-300"
-                  )}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className={cn("text-lg font-black", managementType === '1105' ? "text-red-600" : "text-gray-700")}>CLIENTE 1105</h3>
-                    <div className={cn("p-2 rounded-full", managementType === '1105' ? "bg-red-600 text-white" : "bg-gray-100 text-gray-400")}>
-                      <Truck className="w-5 h-5" />
+                  <button 
+                    onClick={() => setManagementType('1105')}
+                    className={cn(
+                      "p-6 rounded-2xl border-2 text-left transition-all group",
+                      managementType === '1105' 
+                        ? "border-red-500 bg-red-50 ring-4 ring-red-500/10" 
+                        : "border-gray-200 bg-white hover:border-gray-300"
+                    )}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className={cn("text-lg font-black", managementType === '1105' ? "text-red-600" : "text-gray-700")}>CLIENTE 1105</h3>
+                      <div className={cn("p-2 rounded-full", managementType === '1105' ? "bg-red-600 text-white" : "bg-gray-100 text-gray-400")}>
+                        <Truck className="w-5 h-5" />
+                      </div>
                     </div>
-                  </div>
-                  <p className="text-sm text-gray-500 font-medium">Traslados, cambios administrativos o fidelización.</p>
-                </button>
-              </div>
+                    <p className="text-sm text-gray-500 font-medium">Traslados, cambios administrativos o fidelización.</p>
+                  </button>
+                </div>
+              )}
 
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
                 {/* Left Column: Client Info */}
@@ -1052,12 +1032,6 @@ function AppContent() {
                           placeholder="Juan García..."
                         />
                       </div>
-                      <Input 
-                        label="DNI / CIF"
-                        value={client.dni}
-                        onChange={(v: string) => setClient({ ...client, dni: v })}
-                        placeholder="12345678A"
-                      />
                       <Select 
                         label="Idioma Propuesta"
                         value={client.language}
@@ -1268,13 +1242,15 @@ function AppContent() {
                             onChange={(v) => updateLocation(currentLocIndex, { enableAsume: v })}
                           />
                           {currentLoc.enableAsume && (
-                            <button 
-                              onClick={() => window.open('https://www.verisure.es/sites/es/files/carta-compromiso.pdf', '_blank')}
-                              className="w-full py-2 bg-red-50 text-red-600 rounded-lg text-[10px] font-black uppercase border border-red-100 hover:bg-red-100 transition-colors flex items-center justify-center gap-2"
-                            >
-                              <FileText className="w-3 h-3" />
-                              Descargar Carta Compromiso
-                            </button>
+                            <div className="mt-2 p-3 bg-red-50 border border-red-200 border-dashed rounded-lg text-center">
+                              <div className="text-[11px] font-black text-red-600 mb-2">⚠️ TRÁMITE OBLIGATORIO</div>
+                              <button 
+                                onClick={() => setShowSalModal(true)}
+                                className="w-full py-2 bg-red-600 text-white rounded-lg text-[11px] font-bold uppercase transition-colors"
+                              >
+                                📝 RELLENAR PLANTILLA SAL
+                              </button>
+                            </div>
                           )}
                         </div>
                       )}
@@ -1314,12 +1290,18 @@ function AppContent() {
                               ))}
                             </div>
                             {currentLoc.gift && (
-                              <div className="mt-4 grid grid-cols-1 gap-2">
+                              <div className="mt-4 grid grid-cols-2 gap-2">
                                 <button 
-                                  onClick={() => window.open(`https://form.jotform.com/Verisure/retencion-recomendado-baja${currentLoc.gift === '120' ? '-plus' : ''}`, '_blank')}
-                                  className="py-2 bg-white border border-gray-200 rounded-lg text-[10px] font-black uppercase hover:bg-gray-50 transition-colors"
+                                  onClick={() => window.open(currentLoc.gift === '100' ? 'https://form.jotform.com/SecuritasDirect/formulario_recomendar_bj_gestor' : 'https://form.jotform.com/SecuritasDirect/formulario_recomendar_120_bj_gestor', '_blank')}
+                                  className="py-2 bg-red-600 text-white rounded-lg text-[10px] font-black uppercase hover:bg-red-700 transition-colors"
                                 >
-                                  👤 CLIENTE
+                                  📝 SIN DATOS
+                                </button>
+                                <button 
+                                  onClick={() => window.open(currentLoc.gift === '100' ? 'https://form.jotform.com/SecuritasDirect/retencion-recomendado-baja' : 'https://form.jotform.com/SecuritasDirect/retencion-recomendado-baja-plus', '_blank')}
+                                  className="py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-[10px] font-black uppercase hover:bg-gray-50 transition-colors"
+                                >
+                                  👤 CON DATOS
                                 </button>
                               </div>
                             )}
@@ -1432,7 +1414,11 @@ function AppContent() {
                   Limpiar Todo
                 </button>
                 <button 
-                  onClick={() => setShowPreview(true)}
+                  onClick={() => {
+                    if (generateEmailHTML()) {
+                      setShowPreview(true);
+                    }
+                  }}
                   className="flex-1 py-4 bg-gray-800 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-gray-900 transition-all flex items-center justify-center gap-2 shadow-lg"
                 >
                   <Eye className="w-4 h-4" />
@@ -1447,171 +1433,6 @@ function AppContent() {
                 </button>
               </div>
             </motion.div>
-          ) : (
-            <motion.div 
-              key="legal-tab"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="space-y-8"
-            >
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <section className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-6">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Shield className="w-5 h-5 text-red-600" />
-                    <h2 className="text-sm font-black uppercase tracking-widest text-gray-800">Datos Verisure</h2>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <Input label="N.º Cliente" value={legal.clientNum} onChange={(v: string) => setLegal({ ...legal, clientNum: v })} />
-                    <Input label="Matrícula Gestor" value={legal.matricula} onChange={(v: string) => setLegal({ ...legal, matricula: v })} />
-                  </div>
-                  <Input label="Titular Verisure" value={legal.titularSD} onChange={(v: string) => setLegal({ ...legal, titularSD: v })} />
-                  <Input label="DNI/CIF" value={legal.dniSD} onChange={(v: string) => setLegal({ ...legal, dniSD: v })} />
-                  <Input label="Dirección Contrato" value={legal.dirSD} onChange={(v: string) => setLegal({ ...legal, dirSD: v })} />
-                  <Input label="Email Envío Documentación" type="email" value={legal.email} onChange={(v: string) => setLegal({ ...legal, email: v })} />
-                </section>
-
-                <section className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-6">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Briefcase className="w-5 h-5 text-red-600" />
-                    <h2 className="text-sm font-black uppercase tracking-widest text-gray-800">Datos Compañía Competencia</h2>
-                  </div>
-
-                  <Input label="Compañía" value={legal.company} onChange={(v: string) => setLegal({ ...legal, company: v })} />
-                  
-                  <div className="space-y-4">
-                    <Switch 
-                      label="¿Titular diferente?" 
-                      checked={legal.diffTitular} 
-                      onChange={(v) => setLegal({ ...legal, diffTitular: v })} 
-                    />
-                    {legal.diffTitular && (
-                      <div className="grid grid-cols-1 gap-3 pl-4 animate-in fade-in slide-in-from-top-2">
-                        <Input placeholder="Nombre titular competencia" value={legal.titularComp} onChange={(v: string) => setLegal({ ...legal, titularComp: v })} />
-                        <Input placeholder="DNI/CIF competencia" value={legal.dniComp} onChange={(v: string) => setLegal({ ...legal, dniComp: v })} />
-                      </div>
-                    )}
-
-                    <Switch 
-                      label="¿Dirección diferente?" 
-                      checked={legal.diffDir} 
-                      onChange={(v) => setLegal({ ...legal, diffDir: v })} 
-                    />
-                    {legal.diffDir && (
-                      <div className="pl-4 animate-in fade-in slide-in-from-top-2">
-                        <Input placeholder="Dirección competencia" value={legal.dirComp} onChange={(v: string) => setLegal({ ...legal, dirComp: v })} />
-                      </div>
-                    )}
-                  </div>
-
-                  <Input label="Fecha Instalación" type="date" value={legal.installDate} onChange={(v: string) => setLegal({ ...legal, installDate: v })} />
-                </section>
-              </div>
-
-              <section className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-6">
-                <div className="flex items-center gap-2 mb-2">
-                  <FileText className="w-5 h-5 text-red-600" />
-                  <h2 className="text-sm font-black uppercase tracking-widest text-gray-800">Documentación y Notas</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                    <button 
-                      onClick={() => window.open('https://www.verisure.es/sites/es/files/guia-usuario-verisure.pdf', '_blank')}
-                      className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-transparent hover:border-red-200 hover:bg-red-50 transition-all group text-left"
-                    >
-                      <div className="bg-white p-2 rounded-lg shadow-sm group-hover:bg-red-600 group-hover:text-white transition-colors">
-                        <FileText className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-black uppercase text-gray-400">Descargar</p>
-                        <p className="text-xs font-bold text-gray-700">Guía de Usuario</p>
-                      </div>
-                    </button>
-
-                    <button 
-                      onClick={() => window.open('https://www.verisure.es/sites/es/files/folleto-verisure.pdf', '_blank')}
-                      className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-transparent hover:border-red-200 hover:bg-red-50 transition-all group text-left"
-                    >
-                      <div className="bg-white p-2 rounded-lg shadow-sm group-hover:bg-red-600 group-hover:text-white transition-colors">
-                        <Briefcase className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-black uppercase text-gray-400">Descargar</p>
-                        <p className="text-xs font-bold text-gray-700">Folleto Comercial</p>
-                      </div>
-                    </button>
-
-                    <button 
-                      onClick={() => window.open('https://www.verisure.es/condiciones-generales', '_blank')}
-                      className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-transparent hover:border-red-200 hover:bg-red-50 transition-all group text-left"
-                    >
-                      <div className="bg-white p-2 rounded-lg shadow-sm group-hover:bg-red-600 group-hover:text-white transition-colors">
-                        <Shield className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-black uppercase text-gray-400">Ver</p>
-                        <p className="text-xs font-bold text-gray-700">Condiciones Legales</p>
-                      </div>
-                    </button>
-
-                    <button 
-                      onClick={() => window.open('https://www.verisure.es/app-my-verisure', '_blank')}
-                      className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl border border-transparent hover:border-red-200 hover:bg-red-50 transition-all group text-left"
-                    >
-                      <div className="bg-white p-2 rounded-lg shadow-sm group-hover:bg-red-600 group-hover:text-white transition-colors">
-                        <Smartphone className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-black uppercase text-gray-400">Instalar</p>
-                        <p className="text-xs font-bold text-gray-700">App My Verisure</p>
-                      </div>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <Select 
-                    label="¿CARTA PROMO?" 
-                    value={legal.cartaPromo} 
-                    onChange={(v: string) => setLegal({ ...legal, cartaPromo: v })}
-                    options={[{ value: 'SI', label: 'SI' }, { value: 'NO', label: 'NO' }]}
-                  />
-                  <Input label="N.º aviso de baja" value={legal.avisoBaja} onChange={(v: string) => setLegal({ ...legal, avisoBaja: v })} />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500">Observaciones</label>
-                  <textarea 
-                    value={legal.obs}
-                    onChange={(e) => setLegal({ ...legal, obs: e.target.value })}
-                    className="w-full px-3 py-2 bg-gray-50 border-2 border-transparent rounded-lg text-sm transition-all focus:outline-none focus:border-red-500 focus:bg-white min-h-[100px]"
-                  />
-                </div>
-              </section>
-
-              <div className="flex flex-col md:flex-row gap-4 pt-8 border-t border-gray-200">
-                <button 
-                  onClick={resetForm}
-                  className="flex-1 py-4 bg-gray-100 text-gray-600 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
-                >
-                  <RotateCcw className="w-4 h-4" />
-                  Limpiar Todo
-                </button>
-                <button 
-                  onClick={() => setShowPreview(true)}
-                  className="flex-1 py-4 bg-gray-800 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-gray-900 transition-all flex items-center justify-center gap-2 shadow-lg"
-                >
-                  <Eye className="w-4 h-4" />
-                  Vista Previa
-                </button>
-                <button 
-                  onClick={() => copyToClipboard('legal')}
-                  className="flex-[2] py-4 bg-red-600 text-white rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-red-700 transition-all flex items-center justify-center gap-2 shadow-xl shadow-red-600/20"
-                >
-                  <Copy className="w-4 h-4" />
-                  Copiar Formulario Sal
-                </button>
-              </div>
-            </motion.div>
-          )}
         </AnimatePresence>
       </main>
 
@@ -1621,6 +1442,130 @@ function AppContent() {
           Powered by <span className="text-gray-600">ROMMER VOLCANES</span>
         </p>
       </footer>
+
+      {/* SAL Modal Overlay */}
+      <AnimatePresence>
+        {showSalModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white w-full max-w-4xl max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col"
+            >
+              <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-red-600" />
+                  <h3 className="text-sm font-black uppercase tracking-widest text-gray-800">Plantilla SAL (Carta Compromiso)</h3>
+                </div>
+                <button 
+                  onClick={() => setShowSalModal(false)}
+                  className="w-8 h-8 rounded-full bg-gray-100 text-gray-400 hover:bg-gray-200 hover:text-gray-600 transition-all flex items-center justify-center"
+                >
+                  ×
+                </button>
+              </div>
+              
+              <div className="flex-1 overflow-y-auto p-6 bg-gray-50 space-y-8">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <section className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-6">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Shield className="w-5 h-5 text-red-600" />
+                      <h2 className="text-sm font-black uppercase tracking-widest text-gray-800">Datos Verisure</h2>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <Input label="N.º Cliente" value={legal.clientNum} onChange={(v: string) => setLegal({ ...legal, clientNum: v })} />
+                      <Input label="Matrícula Gestor" value={legal.matricula} onChange={(v: string) => setLegal({ ...legal, matricula: v })} />
+                    </div>
+                    <Input label="Titular Verisure" value={legal.titularSD} onChange={(v: string) => setLegal({ ...legal, titularSD: v })} />
+                    <Input label="DNI/CIF" value={legal.dniSD} onChange={(v: string) => setLegal({ ...legal, dniSD: v })} />
+                    <Input label="Dirección Contrato" value={legal.dirSD} onChange={(v: string) => setLegal({ ...legal, dirSD: v })} />
+                    <Input label="Email Envío Documentación" type="email" value={legal.email} onChange={(v: string) => setLegal({ ...legal, email: v })} />
+                  </section>
+
+                  <section className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-6">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Briefcase className="w-5 h-5 text-red-600" />
+                      <h2 className="text-sm font-black uppercase tracking-widest text-gray-800">Datos Compañía Competencia</h2>
+                    </div>
+
+                    <Input label="Compañía" value={legal.company} onChange={(v: string) => setLegal({ ...legal, company: v })} />
+                    
+                    <div className="space-y-4">
+                      <Switch 
+                        label="¿Titular diferente?" 
+                        checked={legal.diffTitular} 
+                        onChange={(v) => setLegal({ ...legal, diffTitular: v })} 
+                      />
+                      {legal.diffTitular && (
+                        <div className="grid grid-cols-1 gap-3 pl-4 animate-in fade-in slide-in-from-top-2">
+                          <Input placeholder="Nombre titular competencia" value={legal.titularComp} onChange={(v: string) => setLegal({ ...legal, titularComp: v })} />
+                          <Input placeholder="DNI/CIF competencia" value={legal.dniComp} onChange={(v: string) => setLegal({ ...legal, dniComp: v })} />
+                        </div>
+                      )}
+
+                      <Switch 
+                        label="¿Dirección diferente?" 
+                        checked={legal.diffDir} 
+                        onChange={(v) => setLegal({ ...legal, diffDir: v })} 
+                      />
+                      {legal.diffDir && (
+                        <div className="pl-4 animate-in fade-in slide-in-from-top-2">
+                          <Input placeholder="Dirección competencia" value={legal.dirComp} onChange={(v: string) => setLegal({ ...legal, dirComp: v })} />
+                        </div>
+                      )}
+                    </div>
+
+                    <Input label="Fecha Instalación" type="date" value={legal.installDate} onChange={(v: string) => setLegal({ ...legal, installDate: v })} />
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 pt-4 border-t border-gray-100">
+                      <Select 
+                        label="¿CARTA PROMO?" 
+                        value={legal.cartaPromo} 
+                        onChange={(v: string) => setLegal({ ...legal, cartaPromo: v })}
+                        options={[{ value: 'SI', label: 'SI' }, { value: 'NO', label: 'NO' }]}
+                      />
+                      <Input label="N.º aviso de baja" value={legal.avisoBaja} onChange={(v: string) => setLegal({ ...legal, avisoBaja: v })} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="block text-[10px] font-bold uppercase tracking-wider text-gray-500">Observaciones</label>
+                      <textarea 
+                        value={legal.obs}
+                        onChange={(e) => setLegal({ ...legal, obs: e.target.value })}
+                        className="w-full px-3 py-2 bg-gray-50 border-2 border-transparent rounded-lg text-sm transition-all focus:outline-none focus:border-red-500 focus:bg-white min-h-[100px]"
+                      />
+                    </div>
+                  </section>
+                </div>
+              </div>
+
+              <div className="p-6 border-t border-gray-100 flex flex-col sm:flex-row justify-end gap-4">
+                <button 
+                  onClick={resetForm}
+                  className="px-6 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold uppercase tracking-widest text-xs hover:bg-gray-200 transition-all flex items-center justify-center gap-2"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Limpiar Todo
+                </button>
+                <button 
+                  onClick={() => copyToClipboard('legal')}
+                  className="px-8 py-3 bg-red-600 text-white rounded-xl font-black uppercase tracking-widest text-xs hover:bg-red-700 transition-all flex items-center gap-2 shadow-lg"
+                >
+                  <Copy className="w-4 h-4" />
+                  Copiar Formulario Sal
+                </button>
+                <button 
+                  onClick={() => setShowSalModal(false)}
+                  className="px-8 py-3 bg-gray-800 text-white rounded-xl font-black uppercase tracking-widest text-xs hover:bg-gray-900 transition-all flex items-center justify-center gap-2"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Preview Modal */}
       <AnimatePresence>
@@ -1645,13 +1590,13 @@ function AppContent() {
               <div className="flex-1 overflow-y-auto p-6 bg-gray-50">
                 <div 
                   className="bg-white rounded-xl shadow-sm overflow-hidden"
-                  dangerouslySetInnerHTML={{ __html: activeTab === 'client' ? generateEmailHTML() : generateLegalHTML() }}
+                  dangerouslySetInnerHTML={{ __html: generateEmailHTML(true) }}
                 />
               </div>
 
               <div className="p-6 border-t border-gray-100 flex justify-end">
                 <button 
-                  onClick={() => copyToClipboard(activeTab === 'client' ? 'email' : 'legal')}
+                  onClick={() => copyToClipboard('email')}
                   className="px-8 py-3 bg-red-600 text-white rounded-xl font-black uppercase tracking-widest text-xs hover:bg-red-700 transition-all flex items-center gap-2"
                 >
                   <Copy className="w-4 h-4" />

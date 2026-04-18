@@ -3,37 +3,28 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Fix for fetch redefinition error in some environments
+      (function() {
+        try {
+          if (typeof window !== 'undefined') {
+            var _fetch = window.fetch;
+            Object.defineProperty(window, 'fetch', {
+              get: function() { return _fetch; },
+              set: function(v) { _fetch = v; },
+              configurable: true,
+              enumerable: true
+            });
+          }
+        } catch (e) {
+          console.warn('Fetch patch failed:', e);
+        }
+      })();
+    </script>
     <title>Gestor de Propuestas AI | Verisure</title>
     <link rel="icon" type="image/x-icon" href="https://www.verisure.es/sites/vs-es/files/favicon.ico" />
-    <style>
-      #error-log {
-        position: fixed;
-        top: 0; left: 0; right: 0;
-        background: red; color: white;
-        z-index: 9999; padding: 10px;
-        font-family: monospace;
-        display: none;
-      }
-    </style>
-    <script>
-      window.onerror = function(msg, url, line, col, error) {
-        var log = document.getElementById('error-log');
-        if (log) {
-          log.style.display = 'block';
-          log.innerHTML += msg + '<br/>';
-        }
-      };
-      window.onunhandledrejection = function(event) {
-        var log = document.getElementById('error-log');
-        if (log) {
-          log.style.display = 'block';
-          log.innerHTML += 'Unhandled Promise Rejection: ' + event.reason + '<br/>';
-        }
-      };
-    </script>
   </head>
   <body>
-    <div id="error-log"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
